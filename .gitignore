@@ -1,2 +1,5 @@
-PLANEJAMENTO.md
-go.sum
+google_credentials.json
+.env
+credentials.json
+data/
+bin/

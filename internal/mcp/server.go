@@ -2,20 +2,29 @@ package mcp
 
 import (
 	"context"
-	"log"
+	"fmt"
 
+	calendarservice "github.com/egomes/google-calendar-mcp-tool/internal/calendar"
+	"github.com/egomes/google-calendar-mcp-tool/internal/googleauth"
 	"github.com/egomes/google-calendar-mcp-tool/internal/mcp/tools"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func Server() {
-
-	server := mcp.NewServer(&mcp.Implementation{Name: "Google Calendar", Version: "v1.0.0"}, nil)
-
-	mcp.AddTool(server, &mcp.Tool{Name: "greet", Description: "say hi"}, tools.SayHi)
-
-	// Run the server over stdin/stdout, until the client disconnects.
-	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
-		log.Fatal(err)
+func Run(ctx context.Context, credentialsPath, tokenPath string) error {
+	auth, err := googleauth.New(credentialsPath, tokenPath)
+	if err != nil {
+		return err
 	}
+
+	server := mcpsdk.NewServer(&mcpsdk.Implementation{
+		Name:    "google-calendar",
+		Version: "0.1.0",
+	}, nil)
+
+	tools.Register(server, auth, calendarservice.New(auth))
+
+	if err := server.Run(ctx, &mcpsdk.StdioTransport{}); err != nil {
+		return fmt.Errorf("run MCP server: %w", err)
+	}
+	return nil
 }

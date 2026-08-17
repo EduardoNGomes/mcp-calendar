@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/mail"
+	"strings"
 	"time"
 
 	calendarservice "github.com/egomes/google-calendar-mcp-tool/internal/calendar"
@@ -43,6 +45,8 @@ type CreateEventInput struct {
 	End         string   `json:"end" jsonschema:"event end in RFC3339"`
 	TimeZone    string   `json:"timeZone,omitempty" jsonschema:"IANA timezone; defaults to America/Sao_Paulo"`
 	Recurrence  []string `json:"recurrence,omitempty" jsonschema:"optional RFC5545 recurrence lines, for example RRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR"`
+	Attendees   []string `json:"attendees,omitempty" jsonschema:"guest email addresses; Google Calendar sends an invitation to each guest"`
+	CreateMeet  bool     `json:"createMeet,omitempty" jsonschema:"create a Google Meet conference for the event"`
 }
 
 type CreateEventOutput struct {
@@ -166,6 +170,11 @@ func createEvent(calendar *calendarservice.Service) mcp.ToolHandlerFor[CreateEve
 			return nil, CreateEventOutput{}, err
 		}
 
+		attendees, err := validAttendees(input.Attendees)
+		if err != nil {
+			return nil, CreateEventOutput{}, err
+		}
+
 		created, err := calendar.CreateEvent(ctx, calendarservice.CreateEvent{
 			CalendarID:  defaultString(input.CalendarID, "primary"),
 			Summary:     input.Summary,
@@ -174,6 +183,8 @@ func createEvent(calendar *calendarservice.Service) mcp.ToolHandlerFor[CreateEve
 			End:         end,
 			TimeZone:    defaultString(input.TimeZone, defaultTimeZone),
 			Recurrence:  input.Recurrence,
+			Attendees:   attendees,
+			CreateMeet:  input.CreateMeet,
 		})
 		if err != nil {
 			return nil, CreateEventOutput{}, err
@@ -181,6 +192,19 @@ func createEvent(calendar *calendarservice.Service) mcp.ToolHandlerFor[CreateEve
 
 		return nil, CreateEventOutput{Event: created}, nil
 	}
+}
+
+func validAttendees(values []string) ([]string, error) {
+	attendees := make([]string, 0, len(values))
+	for _, value := range values {
+		email := strings.TrimSpace(value)
+		address, err := mail.ParseAddress(email)
+		if err != nil || address.Address != email {
+			return nil, fmt.Errorf("invalid attendee email: %q", value)
+		}
+		attendees = append(attendees, email)
+	}
+	return attendees, nil
 }
 
 func eventRange(startValue, endValue string) (time.Time, time.Time, error) {

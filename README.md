@@ -1,6 +1,6 @@
 # Google Calendar MCP
 
-Servidor MCP local em Go para autenticar no Google Calendar, listar eventos e criar eventos únicos ou recorrentes.
+Servidor MCP local em Go para autenticar no Google Calendar, listar eventos e criar eventos únicos ou recorrentes, com convidados e Google Meet.
 
 ## Configuração
 
@@ -41,10 +41,22 @@ Reinicie o Codex depois de alterar ou recompilar o binário.
 - `authenticate`: inicia o OAuth, abre o navegador quando possível e retorna a URL de autorização.
 - `auth_status`: informa se existe uma autenticação reutilizável.
 - `list_events`: lista eventos dentro de um período.
-- `create_event`: cria eventos únicos ou recorrentes.
+- `create_event`: cria eventos únicos ou recorrentes, adiciona convidados e pode gerar um link do Google Meet. Quando há convidados, o Google Calendar envia o convite por e-mail.
 
 Para recorrência semanal, use uma regra como:
 
 ```text
 RRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR
+```
+
+Exemplo de argumentos para criar uma reunião:
+
+```json
+{
+  "summary": "Conversa sobre o projeto",
+  "start": "2026-08-20T10:00:00-03:00",
+  "end": "2026-08-20T10:30:00-03:00",
+  "attendees": ["convidado@example.com"],
+  "createMeet": true
+}
 ```

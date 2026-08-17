@@ -2,6 +2,8 @@ package calendar
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -17,6 +19,8 @@ type Event struct {
 	Start       string   `json:"start"`
 	End         string   `json:"end"`
 	HTMLLink    string   `json:"htmlLink,omitempty"`
+	MeetLink    string   `json:"meetLink,omitempty"`
+	Attendees   []string `json:"attendees,omitempty"`
 	Recurrence  []string `json:"recurrence,omitempty"`
 }
 
@@ -28,6 +32,8 @@ type CreateEvent struct {
 	End         time.Time
 	TimeZone    string
 	Recurrence  []string
+	Attendees   []string
+	CreateMeet  bool
 }
 
 type Service struct {
@@ -75,6 +81,31 @@ func (s *Service) CreateEvent(ctx context.Context, input CreateEvent) (Event, er
 		return Event{}, err
 	}
 
+	event := apiEvent(input)
+	insert := api.Events.Insert(input.CalendarID, event).Context(ctx)
+
+	if len(input.Attendees) > 0 {
+		insert.SendUpdates("all")
+	}
+
+	if input.CreateMeet {
+		conference, err := newConferenceData()
+		if err != nil {
+			return Event{}, err
+		}
+		event.ConferenceData = conference
+		insert.ConferenceDataVersion(1)
+	}
+
+	created, err := insert.Do()
+	if err != nil {
+		return Event{}, fmt.Errorf("create Calendar event: %w", err)
+	}
+
+	return eventFromAPI(created), nil
+}
+
+func apiEvent(input CreateEvent) *calendarapi.Event {
 	event := &calendarapi.Event{
 		Summary:     input.Summary,
 		Description: input.Description,
@@ -89,12 +120,11 @@ func (s *Service) CreateEvent(ctx context.Context, input CreateEvent) (Event, er
 		Recurrence: input.Recurrence,
 	}
 
-	created, err := api.Events.Insert(input.CalendarID, event).Context(ctx).Do()
-	if err != nil {
-		return Event{}, fmt.Errorf("create Calendar event: %w", err)
+	for _, email := range input.Attendees {
+		event.Attendees = append(event.Attendees, &calendarapi.EventAttendee{Email: email})
 	}
 
-	return eventFromAPI(created), nil
+	return event
 }
 
 func (s *Service) api(ctx context.Context) (*calendarapi.Service, error) {
@@ -111,6 +141,11 @@ func (s *Service) api(ctx context.Context) (*calendarapi.Service, error) {
 }
 
 func eventFromAPI(event *calendarapi.Event) Event {
+	attendees := make([]string, 0, len(event.Attendees))
+	for _, attendee := range event.Attendees {
+		attendees = append(attendees, attendee.Email)
+	}
+
 	return Event{
 		ID:          event.Id,
 		Summary:     event.Summary,
@@ -118,8 +153,34 @@ func eventFromAPI(event *calendarapi.Event) Event {
 		Start:       eventTime(event.Start),
 		End:         eventTime(event.End),
 		HTMLLink:    event.HtmlLink,
+		MeetLink:    event.HangoutLink,
+		Attendees:   attendees,
 		Recurrence:  event.Recurrence,
 	}
+}
+
+func conferenceRequestID() (string, error) {
+	value := make([]byte, 16)
+	if _, err := rand.Read(value); err != nil {
+		return "", fmt.Errorf("generate conference request ID: %w", err)
+	}
+	return hex.EncodeToString(value), nil
+}
+
+func newConferenceData() (*calendarapi.ConferenceData, error) {
+	requestID, err := conferenceRequestID()
+	if err != nil {
+		return nil, err
+	}
+
+	return &calendarapi.ConferenceData{
+		CreateRequest: &calendarapi.CreateConferenceRequest{
+			RequestId: requestID,
+			ConferenceSolutionKey: &calendarapi.ConferenceSolutionKey{
+				Type: "hangoutsMeet",
+			},
+		},
+	}, nil
 }
 
 func eventTime(value *calendarapi.EventDateTime) string {

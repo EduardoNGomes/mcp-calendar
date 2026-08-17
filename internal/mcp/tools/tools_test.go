@@ -65,3 +65,21 @@ func TestRequiredEventRangeRejectsInvalidRange(t *testing.T) {
 		t.Fatal("expected an error")
 	}
 }
+
+func TestValidAttendees(t *testing.T) {
+	attendees, err := validAttendees([]string{"guest@example.com", " second@example.com "})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(attendees) != 2 || attendees[1] != "second@example.com" {
+		t.Fatalf("attendees = %v; want normalized email addresses", attendees)
+	}
+}
+
+func TestValidAttendeesRejectsInvalidEmail(t *testing.T) {
+	_, err := validAttendees([]string{"not-an-email"})
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+}

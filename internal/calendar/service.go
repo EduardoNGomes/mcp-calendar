@@ -70,6 +70,7 @@ func (s *Service) ListEvents(
 		TimeMin(start.Format(time.RFC3339)).
 		TimeMax(end.Format(time.RFC3339)).
 		SingleEvents(true).
+		ShowHiddenInvitations(true).
 		OrderBy("startTime").
 		MaxResults(maxResults).
 		Context(ctx).

@@ -42,6 +42,7 @@ Reinicie o Codex depois de alterar ou recompilar o binário.
 - `auth_status`: informa se existe uma autenticação reutilizável.
 - `list_events`: lista eventos dentro de um período.
 - `create_event`: cria eventos únicos ou recorrentes, adiciona convidados e pode gerar um link do Google Meet. Quando há convidados, o Google Calendar envia o convite por e-mail.
+- `respond_to_event`: confirma, recusa ou marca como talvez um convite recebido pelo usuário autenticado.
 
 Para recorrência semanal, use uma regra como:
 
@@ -60,3 +61,14 @@ Exemplo de argumentos para criar uma reunião:
   "createMeet": true
 }
 ```
+
+Para responder a um convite, use o `id` retornado por `list_events`:
+
+```json
+{
+  "eventId": "identificador-do-evento",
+  "responseStatus": "accepted"
+}
+```
+
+Os valores aceitos para `responseStatus` são `accepted`, `declined` e `tentative`.

@@ -32,7 +32,7 @@ func TestRegister(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := []string{"auth_status", "authenticate", "create_event", "list_events"}
+	want := []string{"auth_status", "authenticate", "create_event", "list_events", "respond_to_event"}
 	if len(result.Tools) != len(want) {
 		t.Fatalf("tool count = %d; want %d", len(result.Tools), len(want))
 	}
@@ -79,6 +79,27 @@ func TestValidAttendees(t *testing.T) {
 
 func TestValidAttendeesRejectsInvalidEmail(t *testing.T) {
 	_, err := validAttendees([]string{"not-an-email"})
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+}
+
+func TestRespondToEventRequiresEventID(t *testing.T) {
+	handler := respondToEvent(nil)
+	_, _, err := handler(context.Background(), nil, RespondToEventInput{
+		ResponseStatus: "accepted",
+	})
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+}
+
+func TestRespondToEventRejectsInvalidStatus(t *testing.T) {
+	handler := respondToEvent(nil)
+	_, _, err := handler(context.Background(), nil, RespondToEventInput{
+		EventID:        "event-id",
+		ResponseStatus: "maybe",
+	})
 	if err == nil {
 		t.Fatal("expected an error")
 	}

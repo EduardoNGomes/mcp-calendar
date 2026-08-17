@@ -53,6 +53,16 @@ type CreateEventOutput struct {
 	Event calendarservice.Event `json:"event"`
 }
 
+type RespondToEventInput struct {
+	CalendarID     string `json:"calendarId,omitempty" jsonschema:"calendar identifier; defaults to primary"`
+	EventID        string `json:"eventId" jsonschema:"event identifier returned by list_events"`
+	ResponseStatus string `json:"responseStatus" jsonschema:"invitation response: accepted, declined, or tentative"`
+}
+
+type RespondToEventOutput struct {
+	Event calendarservice.Event `json:"event"`
+}
+
 func Register(
 	server *mcp.Server,
 	auth *googleauth.Service,
@@ -88,6 +98,12 @@ func Register(
 		Description: "Create a single or recurring Google Calendar event",
 		Annotations: additive,
 	}, createEvent(calendar))
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "respond_to_event",
+		Description: "Accept, decline, or tentatively accept a Google Calendar invitation for the authenticated user",
+		Annotations: additive,
+	}, respondToEvent(calendar))
 }
 
 func authenticate(auth *googleauth.Service) mcp.ToolHandlerFor[struct{}, AuthenticateOutput] {
@@ -191,6 +207,35 @@ func createEvent(calendar *calendarservice.Service) mcp.ToolHandlerFor[CreateEve
 		}
 
 		return nil, CreateEventOutput{Event: created}, nil
+	}
+}
+
+func respondToEvent(calendar *calendarservice.Service) mcp.ToolHandlerFor[RespondToEventInput, RespondToEventOutput] {
+	return func(
+		ctx context.Context,
+		req *mcp.CallToolRequest,
+		input RespondToEventInput,
+	) (*mcp.CallToolResult, RespondToEventOutput, error) {
+		if input.EventID == "" {
+			return nil, RespondToEventOutput{}, errors.New("eventId is required")
+		}
+
+		status, err := calendarservice.ParseResponseStatus(input.ResponseStatus)
+		if err != nil {
+			return nil, RespondToEventOutput{}, err
+		}
+
+		event, err := calendar.RespondToEvent(
+			ctx,
+			defaultString(input.CalendarID, "primary"),
+			input.EventID,
+			status,
+		)
+		if err != nil {
+			return nil, RespondToEventOutput{}, err
+		}
+
+		return nil, RespondToEventOutput{Event: event}, nil
 	}
 }
 

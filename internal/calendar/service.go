@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"time"
 
@@ -13,16 +14,25 @@ import (
 )
 
 type Event struct {
-	ID          string   `json:"id"`
-	Summary     string   `json:"summary"`
-	Description string   `json:"description,omitempty"`
-	Start       string   `json:"start"`
-	End         string   `json:"end"`
-	HTMLLink    string   `json:"htmlLink,omitempty"`
-	MeetLink    string   `json:"meetLink,omitempty"`
-	Attendees   []string `json:"attendees,omitempty"`
-	Recurrence  []string `json:"recurrence,omitempty"`
+	ID             string   `json:"id"`
+	Summary        string   `json:"summary"`
+	Description    string   `json:"description,omitempty"`
+	Start          string   `json:"start"`
+	End            string   `json:"end"`
+	HTMLLink       string   `json:"htmlLink,omitempty"`
+	MeetLink       string   `json:"meetLink,omitempty"`
+	Attendees      []string `json:"attendees,omitempty"`
+	ResponseStatus string   `json:"responseStatus,omitempty"`
+	Recurrence     []string `json:"recurrence,omitempty"`
 }
+
+type ResponseStatus string
+
+const (
+	ResponseAccepted  ResponseStatus = "accepted"
+	ResponseDeclined  ResponseStatus = "declined"
+	ResponseTentative ResponseStatus = "tentative"
+)
 
 type CreateEvent struct {
 	CalendarID  string
@@ -60,6 +70,7 @@ func (s *Service) ListEvents(
 		TimeMin(start.Format(time.RFC3339)).
 		TimeMax(end.Format(time.RFC3339)).
 		SingleEvents(true).
+		ShowHiddenInvitations(true).
 		OrderBy("startTime").
 		MaxResults(maxResults).
 		Context(ctx).
@@ -105,6 +116,47 @@ func (s *Service) CreateEvent(ctx context.Context, input CreateEvent) (Event, er
 	return eventFromAPI(created), nil
 }
 
+func (s *Service) RespondToEvent(
+	ctx context.Context,
+	calendarID string,
+	eventID string,
+	status ResponseStatus,
+) (Event, error) {
+	if _, err := ParseResponseStatus(string(status)); err != nil {
+		return Event{}, err
+	}
+
+	api, err := s.api(ctx)
+	if err != nil {
+		return Event{}, err
+	}
+
+	event, err := api.Events.Get(calendarID, eventID).Context(ctx).Do()
+	if err != nil {
+		return Event{}, fmt.Errorf("get Calendar event: %w", err)
+	}
+
+	attendee, err := selfAttendee(event)
+	if err != nil {
+		return Event{}, err
+	}
+	attendee.ResponseStatus = string(status)
+
+	update := api.Events.Update(calendarID, eventID, event).
+		SendUpdates("all").
+		Context(ctx)
+	if event.Etag != "" {
+		update.Header().Set("If-Match", event.Etag)
+	}
+
+	updated, err := update.Do()
+	if err != nil {
+		return Event{}, fmt.Errorf("respond to Calendar event: %w", err)
+	}
+
+	return eventFromAPI(updated), nil
+}
+
 func apiEvent(input CreateEvent) *calendarapi.Event {
 	event := &calendarapi.Event{
 		Summary:     input.Summary,
@@ -142,21 +194,48 @@ func (s *Service) api(ctx context.Context) (*calendarapi.Service, error) {
 
 func eventFromAPI(event *calendarapi.Event) Event {
 	attendees := make([]string, 0, len(event.Attendees))
+	responseStatus := ""
 	for _, attendee := range event.Attendees {
+		if attendee == nil {
+			continue
+		}
 		attendees = append(attendees, attendee.Email)
+		if attendee.Self {
+			responseStatus = attendee.ResponseStatus
+		}
 	}
 
 	return Event{
-		ID:          event.Id,
-		Summary:     event.Summary,
-		Description: event.Description,
-		Start:       eventTime(event.Start),
-		End:         eventTime(event.End),
-		HTMLLink:    event.HtmlLink,
-		MeetLink:    event.HangoutLink,
-		Attendees:   attendees,
-		Recurrence:  event.Recurrence,
+		ID:             event.Id,
+		Summary:        event.Summary,
+		Description:    event.Description,
+		Start:          eventTime(event.Start),
+		End:            eventTime(event.End),
+		HTMLLink:       event.HtmlLink,
+		MeetLink:       event.HangoutLink,
+		Attendees:      attendees,
+		ResponseStatus: responseStatus,
+		Recurrence:     event.Recurrence,
 	}
+}
+
+func ParseResponseStatus(value string) (ResponseStatus, error) {
+	status := ResponseStatus(value)
+	switch status {
+	case ResponseAccepted, ResponseDeclined, ResponseTentative:
+		return status, nil
+	default:
+		return "", errors.New("responseStatus must be accepted, declined, or tentative")
+	}
+}
+
+func selfAttendee(event *calendarapi.Event) (*calendarapi.EventAttendee, error) {
+	for _, attendee := range event.Attendees {
+		if attendee != nil && attendee.Self {
+			return attendee, nil
+		}
+	}
+	return nil, errors.New("authenticated user is not an attendee of this event")
 }
 
 func conferenceRequestID() (string, error) {

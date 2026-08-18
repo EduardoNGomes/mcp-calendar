@@ -59,6 +59,7 @@ Reinicie o Codex depois de alterar ou recompilar o binário.
 - `auth_status`: informa se existe uma autenticação reutilizável.
 - `list_events`: lista os eventos do Calendar dentro de um período, incluindo convites ocultos que já tenham sido adicionados à agenda.
 - `create_event`: cria eventos únicos ou recorrentes, adiciona convidados e pode gerar um link do Google Meet. Quando há convidados, o Google Calendar envia o convite por e-mail.
+- `delete_events`: remove um ou mais eventos pelos seus IDs e envia o cancelamento aos convidados quando aplicável.
 - `respond_to_event`: confirma, recusa ou marca como talvez um convite recebido pelo usuário autenticado.
 
 Para recorrência semanal, use uma regra como:
@@ -89,6 +90,18 @@ Para responder a um convite, use o `id` retornado por `list_events`:
 ```
 
 Os valores aceitos para `responseStatus` são `accepted`, `declined` e `tentative`.
+
+Para remover um evento, envie uma lista com seu ID. Para remover vários eventos,
+adicione todos os IDs na mesma lista:
+
+```json
+{
+  "eventIds": ["primeiro-evento", "segundo-evento"]
+}
+```
+
+O resultado informa separadamente quais eventos foram removidos e quais falharam.
+Assim, uma falha não desfaz as remoções concluídas anteriormente.
 
 O `list_events` solicita também os convites ocultos já conhecidos pelo Calendar.
 Isso não faz com que um convite existente apenas no Gmail seja importado para a

@@ -32,7 +32,7 @@ func TestRegister(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := []string{"auth_status", "authenticate", "create_event", "list_events", "respond_to_event"}
+	want := []string{"auth_status", "authenticate", "create_event", "delete_events", "list_events", "respond_to_event"}
 	if len(result.Tools) != len(want) {
 		t.Fatalf("tool count = %d; want %d", len(result.Tools), len(want))
 	}
@@ -100,6 +100,32 @@ func TestRespondToEventRejectsInvalidStatus(t *testing.T) {
 		EventID:        "event-id",
 		ResponseStatus: "maybe",
 	})
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+}
+
+func TestDeleteEventsRequiresEventID(t *testing.T) {
+	handler := deleteEvents(nil)
+	_, _, err := handler(context.Background(), nil, DeleteEventsInput{})
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+}
+
+func TestValidEventIDsNormalizesAndRemovesDuplicates(t *testing.T) {
+	eventIDs, err := validEventIDs([]string{" first ", "second", "first"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(eventIDs) != 2 || eventIDs[0] != "first" || eventIDs[1] != "second" {
+		t.Fatalf("event IDs = %v; want [first second]", eventIDs)
+	}
+}
+
+func TestValidEventIDsRejectsEmptyID(t *testing.T) {
+	_, err := validEventIDs([]string{"event-id", " "})
 	if err == nil {
 		t.Fatal("expected an error")
 	}

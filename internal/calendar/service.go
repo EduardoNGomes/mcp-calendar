@@ -46,6 +46,16 @@ type CreateEvent struct {
 	CreateMeet  bool
 }
 
+type DeleteFailure struct {
+	EventID string `json:"eventId"`
+	Error   string `json:"error"`
+}
+
+type DeleteResult struct {
+	DeletedEventIDs []string        `json:"deletedEventIds"`
+	Failures        []DeleteFailure `json:"failures"`
+}
+
 type Service struct {
 	auth *googleauth.Service
 }
@@ -114,6 +124,38 @@ func (s *Service) CreateEvent(ctx context.Context, input CreateEvent) (Event, er
 	}
 
 	return eventFromAPI(created), nil
+}
+
+func (s *Service) DeleteEvents(
+	ctx context.Context,
+	calendarID string,
+	eventIDs []string,
+) (DeleteResult, error) {
+	api, err := s.api(ctx)
+	if err != nil {
+		return DeleteResult{}, err
+	}
+
+	result := DeleteResult{
+		DeletedEventIDs: make([]string, 0, len(eventIDs)),
+		Failures:        make([]DeleteFailure, 0),
+	}
+	for _, eventID := range eventIDs {
+		err := api.Events.Delete(calendarID, eventID).
+			SendUpdates("all").
+			Context(ctx).
+			Do()
+		if err != nil {
+			result.Failures = append(result.Failures, DeleteFailure{
+				EventID: eventID,
+				Error:   err.Error(),
+			})
+			continue
+		}
+		result.DeletedEventIDs = append(result.DeletedEventIDs, eventID)
+	}
+
+	return result, nil
 }
 
 func (s *Service) RespondToEvent(

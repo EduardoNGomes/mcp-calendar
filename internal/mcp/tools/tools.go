@@ -53,6 +53,11 @@ type CreateEventOutput struct {
 	Event calendarservice.Event `json:"event"`
 }
 
+type DeleteEventsInput struct {
+	CalendarID string   `json:"calendarId,omitempty" jsonschema:"calendar identifier; defaults to primary"`
+	EventIDs   []string `json:"eventIds" jsonschema:"one or more event identifiers returned by list_events"`
+}
+
 type RespondToEventInput struct {
 	CalendarID     string `json:"calendarId,omitempty" jsonschema:"calendar identifier; defaults to primary"`
 	EventID        string `json:"eventId" jsonschema:"event identifier returned by list_events"`
@@ -72,6 +77,11 @@ func Register(
 	nonDestructive := false
 	additive := &mcp.ToolAnnotations{
 		DestructiveHint: &nonDestructive,
+		ReadOnlyHint:    false,
+	}
+	destructive := true
+	deletion := &mcp.ToolAnnotations{
+		DestructiveHint: &destructive,
 		ReadOnlyHint:    false,
 	}
 
@@ -98,6 +108,12 @@ func Register(
 		Description: "Create a single or recurring Google Calendar event",
 		Annotations: additive,
 	}, createEvent(calendar))
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "delete_events",
+		Description: "Delete one or more Google Calendar events and notify guests when applicable",
+		Annotations: deletion,
+	}, deleteEvents(calendar))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "respond_to_event",
@@ -210,6 +226,30 @@ func createEvent(calendar *calendarservice.Service) mcp.ToolHandlerFor[CreateEve
 	}
 }
 
+func deleteEvents(calendar *calendarservice.Service) mcp.ToolHandlerFor[DeleteEventsInput, calendarservice.DeleteResult] {
+	return func(
+		ctx context.Context,
+		req *mcp.CallToolRequest,
+		input DeleteEventsInput,
+	) (*mcp.CallToolResult, calendarservice.DeleteResult, error) {
+		eventIDs, err := validEventIDs(input.EventIDs)
+		if err != nil {
+			return nil, calendarservice.DeleteResult{}, err
+		}
+
+		result, err := calendar.DeleteEvents(
+			ctx,
+			defaultString(input.CalendarID, "primary"),
+			eventIDs,
+		)
+		if err != nil {
+			return nil, calendarservice.DeleteResult{}, err
+		}
+
+		return nil, result, nil
+	}
+}
+
 func respondToEvent(calendar *calendarservice.Service) mcp.ToolHandlerFor[RespondToEventInput, RespondToEventOutput] {
 	return func(
 		ctx context.Context,
@@ -250,6 +290,30 @@ func validAttendees(values []string) ([]string, error) {
 		attendees = append(attendees, email)
 	}
 	return attendees, nil
+}
+
+func validEventIDs(values []string) ([]string, error) {
+	if len(values) == 0 {
+		return nil, errors.New("eventIds must contain at least one event identifier")
+	}
+	if len(values) > 100 {
+		return nil, errors.New("eventIds must contain at most 100 event identifiers")
+	}
+
+	eventIDs := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		eventID := strings.TrimSpace(value)
+		if eventID == "" {
+			return nil, errors.New("eventIds must not contain an empty event identifier")
+		}
+		if _, exists := seen[eventID]; exists {
+			continue
+		}
+		seen[eventID] = struct{}{}
+		eventIDs = append(eventIDs, eventID)
+	}
+	return eventIDs, nil
 }
 
 func eventRange(startValue, endValue string) (time.Time, time.Time, error) {

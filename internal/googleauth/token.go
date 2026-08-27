@@ -2,6 +2,7 @@ package googleauth
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -42,4 +43,25 @@ func LoadToken(path string) (*oauth2.Token, error) {
 	}
 
 	return &token, nil
+}
+
+// RemoveToken removes the persisted token only when it still belongs to the
+// refresh token that was rejected. This prevents a late request from deleting
+// a newer token saved by a concurrent authorization.
+func RemoveToken(path, expectedRefreshToken string) error {
+	token, err := LoadToken(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	if token.RefreshToken != expectedRefreshToken {
+		return nil
+	}
+
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove OAuth token: %w", err)
+	}
+	return nil
 }

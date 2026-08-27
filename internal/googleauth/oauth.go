@@ -37,6 +37,14 @@ type Service struct {
 	loginURL string
 }
 
+type storedTokenSource struct {
+	source    oauth2.TokenSource
+	tokenPath string
+
+	mu      sync.Mutex
+	current *oauth2.Token
+}
+
 func New(credentialsPath, tokenPath string) (*Service, error) {
 	credentials, err := os.ReadFile(credentialsPath)
 	if err != nil {
@@ -65,9 +73,32 @@ func validateDesktopCredentials(credentials []byte) error {
 	return nil
 }
 
-func (s *Service) IsAuthenticated() bool {
+func (s *Service) IsAuthenticated(ctx context.Context) (bool, error) {
 	token, err := LoadToken(s.tokenPath)
-	return err == nil && (token.Valid() || token.RefreshToken != "")
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	if token.Valid() {
+		return true, nil
+	}
+	if token.RefreshToken == "" {
+		if err := RemoveToken(s.tokenPath, ""); err != nil {
+			return false, err
+		}
+		return false, nil
+	}
+
+	if _, err := s.tokenSource(ctx, token).Token(); err != nil {
+		if errors.Is(err, ErrNotAuthenticated) {
+			return false, nil
+		}
+		return false, fmt.Errorf("refresh Google OAuth token: %w", err)
+	}
+	return true, nil
 }
 
 func (s *Service) Client(ctx context.Context) (*http.Client, error) {
@@ -78,12 +109,22 @@ func (s *Service) Client(ctx context.Context) (*http.Client, error) {
 		}
 		return nil, err
 	}
+	if !token.Valid() && token.RefreshToken == "" {
+		if err := RemoveToken(s.tokenPath, ""); err != nil {
+			return nil, err
+		}
+		return nil, ErrNotAuthenticated
+	}
 
-	return s.config.Client(ctx, token), nil
+	return oauth2.NewClient(ctx, s.tokenSource(ctx, token)), nil
 }
 
-func (s *Service) StartAuthorization() (Authorization, error) {
-	if s.IsAuthenticated() {
+func (s *Service) StartAuthorization(ctx context.Context) (Authorization, error) {
+	authenticated, err := s.IsAuthenticated(ctx)
+	if err != nil {
+		return Authorization{}, err
+	}
+	if authenticated {
 		return Authorization{Authenticated: true}, nil
 	}
 
@@ -119,6 +160,43 @@ func (s *Service) StartAuthorization() (Authorization, error) {
 		AuthorizationURL: s.loginURL,
 		BrowserOpened:    opened,
 	}, nil
+}
+
+func (s *Service) tokenSource(ctx context.Context, token *oauth2.Token) oauth2.TokenSource {
+	return &storedTokenSource{
+		source:    s.config.TokenSource(ctx, token),
+		tokenPath: s.tokenPath,
+		current:   token,
+	}
+}
+
+func (s *storedTokenSource) Token() (*oauth2.Token, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	token, err := s.source.Token()
+	if err != nil {
+		if isInvalidGrant(err) {
+			if removeErr := RemoveToken(s.tokenPath, s.current.RefreshToken); removeErr != nil {
+				return nil, errors.Join(ErrNotAuthenticated, err, removeErr)
+			}
+			return nil, fmt.Errorf("%w: Google OAuth token expired or was revoked", ErrNotAuthenticated)
+		}
+		return nil, err
+	}
+
+	if token != s.current {
+		if err := SaveToken(s.tokenPath, token); err != nil {
+			return nil, err
+		}
+		s.current = token
+	}
+	return token, nil
+}
+
+func isInvalidGrant(err error) bool {
+	var retrieveError *oauth2.RetrieveError
+	return errors.As(err, &retrieveError) && retrieveError.ErrorCode == "invalid_grant"
 }
 
 func (s *Service) callbackHandler(

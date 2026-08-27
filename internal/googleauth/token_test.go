@@ -36,3 +36,18 @@ func TestSaveAndLoadToken(t *testing.T) {
 		t.Fatalf("token permissions = %o; want 600", info.Mode().Perm())
 	}
 }
+
+func TestRemoveTokenDoesNotRemoveNewerAuthorization(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "token.json")
+	newToken := &oauth2.Token{RefreshToken: "new-refresh-token"}
+	if err := SaveToken(path, newToken); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := RemoveToken(path, "old-refresh-token"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadToken(path); err != nil {
+		t.Fatalf("newer authorization was removed: %v", err)
+	}
+}

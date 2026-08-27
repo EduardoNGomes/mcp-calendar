@@ -128,7 +128,7 @@ func authenticate(auth *googleauth.Service) mcp.ToolHandlerFor[struct{}, Authent
 		req *mcp.CallToolRequest,
 		input struct{},
 	) (*mcp.CallToolResult, AuthenticateOutput, error) {
-		authorization, err := auth.StartAuthorization()
+		authorization, err := auth.StartAuthorization(ctx)
 		if err != nil {
 			return nil, AuthenticateOutput{}, err
 		}
@@ -155,7 +155,11 @@ func authStatus(auth *googleauth.Service) mcp.ToolHandlerFor[struct{}, AuthStatu
 		req *mcp.CallToolRequest,
 		input struct{},
 	) (*mcp.CallToolResult, AuthStatusOutput, error) {
-		return nil, AuthStatusOutput{Authenticated: auth.IsAuthenticated()}, nil
+		authenticated, err := auth.IsAuthenticated(ctx)
+		if err != nil {
+			return nil, AuthStatusOutput{}, err
+		}
+		return nil, AuthStatusOutput{Authenticated: authenticated}, nil
 	}
 }
 
